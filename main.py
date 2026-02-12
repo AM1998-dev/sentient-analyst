@@ -20,7 +20,7 @@ origins = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins, # For tighter security, replace "*" with your Streamlit URL later
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
