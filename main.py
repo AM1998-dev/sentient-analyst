@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import google.generativeai as genai
 
+
 app = FastAPI(title="Sentient Financial Analyst API")
 
 # 1. 🛡️ CORS Configuration: Allows Streamlit Cloud to talk to Render
