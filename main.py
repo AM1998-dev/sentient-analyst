@@ -1,81 +1,83 @@
 import os
 import shutil
+import uuid
 from pathlib import Path
-from dotenv import load_dotenv
-import google.generativeai as genai
-from fastapi import FastAPI, Form, HTTPException, File, UploadFile
-from pydantic import BaseModel
 from typing import Optional
+from fastapi import FastAPI, HTTPException, File, UploadFile, Form, Header
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+import google.generativeai as genai
 
-# 1. Setup
-load_dotenv()
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+app = FastAPI(title="Sentient Financial Analyst API")
 
-# Define the "personality" and rules for your agent
-SYSTEM_PROMPT = """
-You are a Senior Financial Analyst. Your goal is to provide precise, data-driven insights.
-1. Always look for Year-over-Year (YoY) or Quarter-over-Quarter (QoQ) changes when data is available.
-2. If the user asks for a summary, provide a markdown table of Key Performance Indicators (KPIs) 
-   including Revenue, Net Income, and Operating Margin.
-3. If data is missing or unstructured, clearly state what you found and what is unavailable.
-4. Perform basic calculations (like profit margins) automatically to add value to your answers.
-"""
+# 1. 🛡️ CORS Configuration: Allows Streamlit Cloud to talk to Render
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # For tighter security, replace "*" with your Streamlit URL later
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-model = genai.GenerativeModel('gemini-3-flash-preview', system_instruction=SYSTEM_PROMPT)
-
-app = FastAPI(title="Sentient Financial Analyst")
-
-# Ensure an 'uploads' directory exists for temporary storage
+# 2. 📁 Multi-User Storage Setup
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 class AnalysisRequest(BaseModel):
     ticker: str
     query: str
-    user_id: str #Now required for every question to track which user is asking
-    file_uri: Optional[str] = None # Now we can accept a dynamic file URI!
+    user_id: str
+    file_uri: Optional[str] = None
+
+# 3. 🧠 System Instructions (The "Brain")
+SYSTEM_PROMPT = """
+You are a Senior Financial Analyst. Your goal is to provide precise, data-driven insights.
+1. Always look for Year-over-Year (YoY) or Quarter-over-Quarter (QoQ) changes.
+2. If asked for a summary, provide a markdown table of KPIs (Revenue, Net Income, Operating Margin).
+3. Perform basic calculations (like profit margins) automatically.
+4. If data is missing, clearly state what is unavailable.
+"""
 
 @app.get("/")
 def home():
-    return {"message": "Backend is online. 🤖"}
+    return {"status": "online", "agent": "Senior Financial Analyst"}
 
-# 🚀 NEW: The Upload Endpoint
 @app.post("/upload")
 async def upload_document(file: UploadFile = File(...), user_id: str = Form(...)):
     try:
-        # Save locally first (Google SDK often needs a path)
-        local_path = UPLOAD_DIR / file.filename
-        with local_path.open("wb") as buffer:
+        user_path = UPLOAD_DIR / user_id
+        user_path.mkdir(exist_ok=True)
+        local_file = user_path / file.filename
+        
+        with local_file.open("wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         
-        # Upload to Google File API
-        print(f"Uploading {file.filename} to Gemini...")
-        genai_file = genai.upload_file(path=str(local_path), display_name=file.filename)
+        # We don't configure global genai here to keep it stateless per user request
+        # The file upload will use the SERVER's key for storage management
+        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+        genai_file = genai.upload_file(path=str(local_file), display_name=file.filename)
         
-        # Clean up local file to save space
-        os.remove(local_path)
-        
-        return {"file_uri": genai_file.name} # Return the ID for the dashboard to store
-        
+        os.remove(local_file)
+        return {"file_uri": genai_file.name}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/analyze")
-async def analyze_stock(request: AnalysisRequest):
+async def analyze_stock(request: AnalysisRequest, x_gemini_api_key: str = Header(None)):
+    if not x_gemini_api_key:
+        raise HTTPException(status_code=401, detail="Please provide your Gemini API Key")
+
     try:
-        # Decide which document to use
-        # If the user uploaded a new one, use that. Otherwise, use your hardcoded one.
-        target_uri = request.file_uri if request.file_uri else "files/erlws8kwrgr0"
+        # 🔑 Configure on-the-fly with the user's key (BYOK)
+        genai.configure(api_key=x_gemini_api_key)
+        model = genai.GenerativeModel(
+            model_name='gemini-1.5-flash',
+            system_instruction=SYSTEM_PROMPT
+        )
         
-        report_file = genai.get_file(name=target_uri)
+        report_file = genai.get_file(name=request.file_uri)
+        response = model.generate_content([report_file, f"\n\nQuestion: {request.query}"])
         
-        prompt_parts = [
-            report_file,
-            f"\n\nQuestion: {request.query} regarding {request.ticker}."
-        ]
-        
-        response = model.generate_content(prompt_parts)
         return {"analysis": response.text}
-        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

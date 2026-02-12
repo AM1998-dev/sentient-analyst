@@ -2,73 +2,65 @@ import streamlit as st
 import requests
 import uuid
 
-# Initialize a unique session ID if it doesn't exist
+# 1. 🌍 Configuration - Update this after deploying to Render!
+RENDER_URL = "https://your-app-name.onrender.com" 
+
+st.set_page_config(page_title="Sentient Analyst", page_icon="📈")
+
+# 2. 🆔 Session & User Management
 if "user_id" not in st.session_state:
     st.session_state.user_id = str(uuid.uuid4())
-
-# 1. Page Configuration
-st.set_page_config(page_title="Sentient Analyst", page_icon="🤖")
-st.title("🤖 Sentient Financial Analyst")
-st.markdown("Query your financial documents with Gemini 3 Flash.")
-
-# 2. Sidebar for Document Management
-with st.sidebar:
-    st.header("📂 Document Center")
-    uploaded_file = st.file_uploader("Upload a financial PDF", type="pdf")
-    st.header("Authentication key")
-    user_key = st.text_input("Gemini API Key", type="password")
-    st.markdown("[Get your free Gemini API Key here](https://aistudio.google.com/app/apikey)")
-    
-    if st.button("Initialize Document"):
-        if uploaded_file:
-            with st.spinner("Processing document..."):
-                # We will build this endpoint next!
-                files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "application/pdf")}
-
-                #Pack the ID as form data
-                data = {"user_id": st.session_state.user_id}
-                response = requests.post("http://127.0.0.1:8000/upload", files=files, data=data)
-                
-                if response.status_code == 200:
-                    st.success(f"Successfully processed: {uploaded_file.name}")
-                    # Store the File URI in the session so the chat can use it
-                    st.session_state['file_uri'] = response.json().get("file_uri")
-                else:
-                    st.error("Failed to upload document.")
-        else:
-            st.warning("Please select a file first.")
-
-# 3. Chat Interface
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Display chat history
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+st.title("📈 Sentient Financial Analyst")
 
-# User Input
-if prompt := st.chat_input("Ask about the report..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    # 4. Talk to the FastAPI Backend
-    with st.chat_message("assistant"):
-        with st.spinner("Analyzing..."):
-            payload = {
-                "ticker": "USER_DOC", 
-                "query": prompt,
-                "file_uri": st.session_state.get('file_uri'), # Send the specific file URI
-                "user_id": st.session_state.user_id # Include the user ID for backend tracking
-            }
-            # We'll update the /analyze endpoint to handle this payload
-            headers = {"X-Gemini-API-Key": user_key}
-            response = requests.post("http://127.0.0.1:8000/analyze", json=payload, headers=headers)
+with st.sidebar:
+    st.header("🔑 Auth & Data")
+    user_key = st.text_input("Gemini API Key", type="password")
+    st.caption("[Get a free key here](https://aistudio.google.com/app/apikey)")
+    
+    uploaded_file = st.file_uploader("Upload Financial PDF", type="pdf")
+    if st.button("Process Document"):
+        if uploaded_file and user_key:
+            files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "application/pdf")}
+            data = {"user_id": st.session_state.user_id}
             
-            if response.status_code == 200:
-                answer = response.json()["analysis"]
-                st.markdown(answer)
-                st.session_state.messages.append({"role": "assistant", "content": answer})
-            else:
-                st.error("The agent encountered an error during analysis.")
+            with st.spinner("Uploading to Analyst..."):
+                resp = requests.post(f"{RENDER_URL}/upload", files=files, data=data)
+                if resp.status_code == 200:
+                    st.session_state.file_uri = resp.json()["file_uri"]
+                    st.success("Analysis Engine Ready!")
+        else:
+            st.error("Missing Key or File")
+
+# 3. 💬 Chat Interface
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+if prompt := st.chat_input("Ask about the financials..."):
+    if not st.session_state.get("file_uri"):
+        st.warning("Please upload and process a document first.")
+    else:
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        with st.chat_message("assistant"):
+            payload = {
+                "ticker": "UPLOADED_DOC",
+                "query": prompt,
+                "user_id": st.session_state.user_id,
+                "file_uri": st.session_state.file_uri
+            }
+            headers = {"X-Gemini-API-Key": user_key}
+            
+            with st.spinner("Calculating..."):
+                resp = requests.post(f"{RENDER_URL}/analyze", json=payload, headers=headers)
+                if resp.status_code == 200:
+                    answer = resp.json()["analysis"]
+                    st.markdown(answer)
+                    st.session_state.messages.append({"role": "assistant", "content": answer})
+                else:
+                    st.error("Analysis failed. Check your API Key.")
