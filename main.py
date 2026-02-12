@@ -12,14 +12,14 @@ import google.generativeai as genai
 app = FastAPI(title="Sentient Financial Analyst API")
 
 origins = [
-    "https://sentient-analyst-7xhexjqgafwq9shff4gdng.streamlit.app/", # Replace with your real Streamlit URL
+    "https://sentient-analyst-7xhexjqgafwq9shff4gdng.streamlit.app", # Replace with your real Streamlit URL
     "http://localhost:8501",               # For local testing
 ]
 
 # 1. 🛡️ CORS Configuration: Allows Streamlit Cloud to talk to Render
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # For tighter security, replace "*" with your Streamlit URL later
+    allow_origins=origins, # For tighter security, replace "*" with your Streamlit URL later
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
