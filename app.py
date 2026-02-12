@@ -3,7 +3,7 @@ import requests
 import uuid
 
 # 1. 🌍 Configuration - Update this after deploying to Render!
-RENDER_URL = "https://your-app-name.onrender.com" 
+RENDER_URL = "https://sentient-analyst-api.onrender.com" 
 
 st.set_page_config(page_title="Sentient Analyst", page_icon="📈")
 
